@@ -3,13 +3,18 @@ import { defineStore } from "pinia";
 export const useGPSStore = defineStore("gps", {
   state: () => ({
     // Connection state
+    isConnected: false,
     connectionStatus: {
       connected: false,
       port: null,
+      baudRate: null,
       error: null,
     },
 
-    // Current GPS data
+    // Available serial ports
+    availablePorts: [],
+
+    // GPS data
     currentPosition: null,
     currentNavigation: null,
     currentSatellites: null,
@@ -18,88 +23,174 @@ export const useGPSStore = defineStore("gps", {
     isRecording: false,
     currentSession: null,
     recordedPositions: [],
-    waypoints: [], // Add waypoints array
-
-    // Historical data
+    waypoints: [],
     sessions: [],
-
-    // Available serial ports
-    availablePorts: [],
 
     // Settings
     settings: {
+      recordingInterval: 1000, // milliseconds
+      accuracyThreshold: 5.0, // meters
       autoConnect: false,
       preferredPort: "",
       baudRate: 115200,
-      recordingInterval: 1000, // ms
-      accuracyThreshold: 10, // meters
     },
   }),
 
   getters: {
-    isConnected: (state) => state.connectionStatus.connected,
+    hasValidPosition: (state) => {
+      return state.currentPosition && state.currentPosition.latitude && state.currentPosition.longitude;
+    },
 
-    hasValidPosition: (state) => state.currentPosition && state.currentPosition.latitude !== 0 && state.currentPosition.longitude !== 0,
-
-    currentAccuracy: (state) => state.currentPosition?.accuracy || null,
+    currentAccuracy: (state) => {
+      return state.currentPosition?.accuracy || null;
+    },
 
     accuracyLevel: (state) => {
-      const acc = state.currentPosition?.accuracy;
-      if (!acc) return "unknown";
-      if (acc <= 2) return "high";
-      if (acc <= 5) return "medium";
+      const accuracy = state.currentPosition?.accuracy;
+      if (!accuracy) return "unknown";
+      if (accuracy <= 2) return "high";
+      if (accuracy <= 5) return "medium";
       return "low";
     },
 
-    currentSessionStats: (state) => {
-      if (!state.currentSession) return null;
+    currentSessionStats() {
+      if (!this.isRecording || !this.currentSession) {
+        return {
+          duration: 0,
+          totalPoints: 0,
+          distance: 0,
+          maxSpeed: 0,
+          avgAccuracy: 0,
+        };
+      }
 
-      const positions = state.recordedPositions;
-      if (positions.length === 0) return null;
+      const duration = Date.now() - new Date(this.currentSession.startTime).getTime();
+      const totalPoints = this.recordedPositions.length;
 
-      const totalDistance = calculateTotalDistance(positions);
-      const speeds = positions.map((_, i) => (i > 0 ? calculateSpeed(positions[i - 1], positions[i]) : 0)).filter((speed) => speed > 0);
+      let distance = 0;
+      let maxSpeed = 0;
+      let totalAccuracy = 0;
+      let validAccuracies = 0;
 
-      const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
-      const avgAccuracy = positions.filter((p) => p.accuracy !== null).reduce((sum, p) => sum + (p.accuracy || 0), 0) / positions.length;
+      if (totalPoints > 1) {
+        for (let i = 1; i < this.recordedPositions.length; i++) {
+          const dist = calculateDistance(this.recordedPositions[i - 1], this.recordedPositions[i]);
+          distance += dist;
+
+          const speed = calculateSpeed(this.recordedPositions[i - 1], this.recordedPositions[i]);
+          if (speed > maxSpeed) maxSpeed = speed;
+        }
+      }
+
+      // Calculate average accuracy
+      this.recordedPositions.forEach((pos) => {
+        if (pos.accuracy !== null) {
+          totalAccuracy += pos.accuracy;
+          validAccuracies++;
+        }
+      });
 
       return {
-        duration: Date.now() - new Date(state.currentSession.startTime).getTime(),
-        totalPoints: positions.length,
-        distance: totalDistance,
-        maxSpeed,
-        avgAccuracy: Math.round(avgAccuracy * 10) / 10,
+        duration,
+        totalPoints,
+        distance: Math.round(distance * 1000) / 1000, // Round to 3 decimal places
+        maxSpeed: Math.round(maxSpeed * 10) / 10, // Round to 1 decimal place
+        avgAccuracy: validAccuracies > 0 ? Math.round((totalAccuracy / validAccuracies) * 10) / 10 : 0,
       };
     },
   },
 
   actions: {
-    // Connection management
-    setConnectionStatus(status) {
-      this.connectionStatus = status;
+    // Initialize GPS event listeners
+    initializeGPS() {
+      if (process.client && window.electronAPI) {
+        // Remove existing listeners to prevent duplicates
+        window.electronAPI.removeAllListeners("gps-data");
+        window.electronAPI.removeAllListeners("gps-connection-status");
+        window.electronAPI.removeAllListeners("recording-status-changed");
+        window.electronAPI.removeAllListeners("gps-position-recorded");
+
+        // GPS data events
+        window.electronAPI.onGPSData((event, data) => {
+          this.handleGPSData(data);
+        });
+
+        // Connection status events
+        window.electronAPI.onGPSConnectionStatus((event, status) => {
+          this.connectionStatus = status;
+          this.isConnected = status.connected;
+        });
+
+        // Recording status events
+        window.electronAPI.onRecordingStatusChanged((event, status) => {
+          console.log("Recording status changed:", status);
+          this.isRecording = status.isRecording;
+
+          // If recording stopped from backend, finalize the session
+          if (!status.isRecording && this.currentSession) {
+            this.finalizeCurrentSession();
+          }
+        });
+
+        // Position recording events
+        window.electronAPI.onGPSPositionRecorded((event, position) => {
+          console.log("Position recorded:", position);
+          // Position is already added to recordedPositions via handleGPSData
+          // This event just confirms it was recorded by the backend
+        });
+      }
     },
 
+    // Handle incoming GPS data
+    handleGPSData(data) {
+      switch (data.type) {
+        case "position":
+          this.updatePosition(data);
+          break;
+        case "navigation":
+          this.updateNavigation(data);
+          break;
+        case "satellites":
+          this.updateSatellites(data);
+          break;
+      }
+    },
+
+    // Serial port management
     async loadAvailablePorts() {
       if (process.client && window.electronAPI) {
         try {
           this.availablePorts = await window.electronAPI.listSerialPorts();
+          return this.availablePorts;
         } catch (error) {
           console.error("Failed to load serial ports:", error);
+          this.availablePorts = [];
+          return [];
         }
       }
+      return [];
     },
 
+    // GPS connection management
     async connectToGPS(portPath, baudRate = 115200) {
       if (process.client && window.electronAPI) {
         try {
           const success = await window.electronAPI.connectGPS(portPath, baudRate);
           if (success) {
+            this.connectionStatus.connected = true;
+            this.connectionStatus.port = portPath;
+            this.connectionStatus.baudRate = baudRate;
+            this.connectionStatus.error = null;
+            this.isConnected = true;
+
+            // Update settings
             this.settings.preferredPort = portPath;
             this.settings.baudRate = baudRate;
           }
           return success;
         } catch (error) {
           console.error("Failed to connect to GPS:", error);
+          this.connectionStatus.error = error.message;
           return false;
         }
       }
@@ -111,6 +202,16 @@ export const useGPSStore = defineStore("gps", {
         try {
           await window.electronAPI.disconnectGPS();
           this.connectionStatus.connected = false;
+          this.isConnected = false;
+          this.currentPosition = null;
+          this.currentNavigation = null;
+          this.currentSatellites = null;
+
+          // Stop recording if active
+          if (this.isRecording) {
+            this.isRecording = false;
+            this.finalizeCurrentSession();
+          }
         } catch (error) {
           console.error("Failed to disconnect from GPS:", error);
         }
@@ -121,8 +222,8 @@ export const useGPSStore = defineStore("gps", {
     updatePosition(position) {
       this.currentPosition = position;
 
+      // If recording and position meets accuracy threshold, add to recorded positions
       if (this.isRecording && this.currentSession) {
-        // Only record if accuracy is within threshold
         if (!position.accuracy || position.accuracy <= this.settings.accuracyThreshold) {
           this.recordedPositions.push(position);
         }
@@ -138,36 +239,80 @@ export const useGPSStore = defineStore("gps", {
     },
 
     // Recording management
-    startRecording() {
-      if (this.isRecording) return;
-
-      const sessionId = `session_${Date.now()}`;
-      this.currentSession = {
-        id: sessionId,
-        startTime: new Date().toISOString(),
-        positions: [],
-        waypoints: [], // Add waypoints to session
-        totalPoints: 0,
-        distance: 0,
-        maxSpeed: 0,
-        avgAccuracy: 0,
-      };
-
-      this.recordedPositions = [];
-      this.waypoints = []; // Reset waypoints for new session
-      this.isRecording = true;
+    async startRecording() {
+      if (this.isRecording) {
+        console.log("Recording already active");
+        return false;
+      }
 
       if (process.client && window.electronAPI) {
-        window.electronAPI.startRecording();
+        try {
+          const result = await window.electronAPI.startRecording();
+
+          if (result.success) {
+            // Create new session
+            const sessionId = `session_${Date.now()}`;
+            this.currentSession = {
+              id: sessionId,
+              startTime: new Date().toISOString(),
+              positions: [],
+              waypoints: [],
+              totalPoints: 0,
+              distance: 0,
+              maxSpeed: 0,
+              avgAccuracy: 0,
+            };
+
+            this.recordedPositions = [];
+            this.waypoints = [];
+            this.isRecording = true;
+
+            console.log("Recording started successfully");
+            return true;
+          } else {
+            console.log("Failed to start recording:", result.message);
+            return false;
+          }
+        } catch (error) {
+          console.error("Error starting recording:", error);
+          return false;
+        }
       }
+      return false;
     },
 
-    stopRecording() {
-      if (!this.isRecording || !this.currentSession) return;
+    async stopRecording() {
+      if (!this.isRecording) {
+        console.log("Recording not active");
+        return false;
+      }
+
+      if (process.client && window.electronAPI) {
+        try {
+          const result = await window.electronAPI.stopRecording();
+
+          if (result.success) {
+            this.finalizeCurrentSession();
+            console.log("Recording stopped successfully");
+            return true;
+          } else {
+            console.log("Failed to stop recording:", result.message);
+            return false;
+          }
+        } catch (error) {
+          console.error("Error stopping recording:", error);
+          return false;
+        }
+      }
+      return false;
+    },
+
+    finalizeCurrentSession() {
+      if (!this.currentSession) return;
 
       this.currentSession.endTime = new Date().toISOString();
       this.currentSession.positions = [...this.recordedPositions];
-      this.currentSession.waypoints = [...this.waypoints]; // Save waypoints to session
+      this.currentSession.waypoints = [...this.waypoints];
       this.currentSession.totalPoints = this.recordedPositions.length;
 
       if (this.recordedPositions.length > 1) {
@@ -187,12 +332,8 @@ export const useGPSStore = defineStore("gps", {
       this.sessions.unshift(this.currentSession);
       this.currentSession = null;
       this.recordedPositions = [];
-      this.waypoints = []; // Clear waypoints
+      this.waypoints = [];
       this.isRecording = false;
-
-      if (process.client && window.electronAPI) {
-        window.electronAPI.stopRecording();
-      }
     },
 
     clearCurrentSession() {
@@ -234,6 +375,37 @@ export const useGPSStore = defineStore("gps", {
     updateSettings(newSettings) {
       this.settings = { ...this.settings, ...newSettings };
     },
+
+    // Initialize recording status from backend
+    async syncRecordingStatus() {
+      if (process.client && window.electronAPI) {
+        try {
+          const status = await window.electronAPI.getRecordingStatus();
+          this.isRecording = status.isRecording;
+          this.isConnected = status.hasGPSConnection;
+
+          if (status.currentPosition) {
+            this.currentPosition = status.currentPosition;
+          }
+
+          // If recording but no current session, create one (recovery scenario)
+          if (status.isRecording && !this.currentSession) {
+            this.currentSession = {
+              id: `session_${Date.now()}`,
+              startTime: new Date().toISOString(),
+              positions: [],
+              waypoints: [],
+              totalPoints: 0,
+              distance: 0,
+              maxSpeed: 0,
+              avgAccuracy: 0,
+            };
+          }
+        } catch (error) {
+          console.error("Failed to sync recording status:", error);
+        }
+      }
+    },
   },
 
   persist: {
@@ -271,5 +443,5 @@ function calculateSpeed(pos1, pos2) {
 }
 
 function toRad(degrees) {
-  return degrees * (Math.PI / 180);
+  return (degrees * Math.PI) / 180;
 }

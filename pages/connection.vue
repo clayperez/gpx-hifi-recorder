@@ -44,7 +44,7 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Serial Port Selection -->
           <div>
-            <label for="port" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"> Serial Port </label>
+            <label for="port" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Serial Port</label>
             <USelect
               v-model="selectedPort"
               :options="portOptions"
@@ -57,7 +57,7 @@
 
           <!-- Baud Rate -->
           <div>
-            <label for="baudRate" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"> Baud Rate </label>
+            <label for="baudRate" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Baud Rate</label>
             <USelect v-model="selectedBaudRate" :options="baudRateOptions" :disabled="gpsStore.isConnected || isConnecting" class="w-full" />
             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Default for Columbus P-7 Pro is 115200</p>
           </div>
@@ -87,113 +87,48 @@
     <div class="card">
       <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Available Serial Ports</h3>
 
-      <div v-if="gpsStore.availablePorts.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
-        <UIcon name="i-heroicons-usb" class="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <p>No serial ports detected</p>
-        <p class="text-sm mt-1">Make sure your GPS receiver is connected via USB</p>
+      <div v-if="!gpsStore.availablePorts || gpsStore.availablePorts.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
+        <UIcon name="i-heroicons-exclamation-triangle" class="w-12 h-12 mx-auto mb-2" />
+        <p class="text-lg font-medium mb-1">No Serial Ports Found</p>
+        <p class="text-sm">
+          Make sure your Columbus P-7 Pro is connected via USB and drivers are installed.
+          <br />
+          Click "Refresh Ports" to scan again.
+        </p>
       </div>
 
       <div v-else class="space-y-3">
         <div
           v-for="port in gpsStore.availablePorts"
           :key="port.path"
-          class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          class="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg"
+          :class="{ 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700': isColumbusDevice(port) }"
         >
           <div class="flex-1">
-            <div class="flex items-center space-x-3">
-              <UIcon name="i-heroicons-usb" class="w-5 h-5 text-gray-400" />
-              <div>
-                <p class="font-medium text-gray-900 dark:text-white">{{ port.path }}</p>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ port.manufacturer || "Unknown Manufacturer" }}
-                </p>
-                <p v-if="port.productId" class="text-xs text-gray-400 dark:text-gray-500">PID: {{ port.productId }} | VID: {{ port.vendorId }}</p>
-              </div>
+            <p class="font-mono text-sm text-gray-900 dark:text-white">{{ port.path }}</p>
+            <p class="text-xs text-gray-600 dark:text-gray-400">{{ port.manufacturer || "Unknown manufacturer" }}</p>
+            <div v-if="isColumbusDevice(port)" class="flex items-center space-x-1 mt-1">
+              <UIcon name="i-heroicons-star" class="w-3 h-3 text-blue-600" />
+              <span class="text-xs text-blue-600 dark:text-blue-400 font-medium">Likely Columbus P-7 Pro</span>
             </div>
           </div>
-
-          <div class="flex items-center space-x-2">
-            <span v-if="isColumbusDevice(port)" class="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded">
-              Columbus Device
-            </span>
-            <span
-              v-if="gpsStore.connectionStatus.port === port.path"
-              class="px-2 py-1 text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded"
-            >
-              Connected
-            </span>
-            <UButton v-if="!gpsStore.isConnected" size="sm" variant="outline" @click="quickConnect(port.path)" :disabled="isConnecting">
-              Quick Connect
-            </UButton>
-          </div>
+          <UButton v-if="!gpsStore.isConnected" variant="outline" size="sm" @click="quickConnect(port.path)" :disabled="isConnecting"> Quick Connect </UButton>
         </div>
       </div>
     </div>
 
-    <!-- Device Information -->
+    <!-- GPS Settings -->
     <div class="card">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Columbus P-7 Pro Information</h3>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <h4 class="font-medium text-gray-900 dark:text-white mb-3">Specifications</h4>
-          <dl class="space-y-2 text-sm">
-            <div class="flex justify-between">
-              <dt class="text-gray-600 dark:text-gray-400">Accuracy:</dt>
-              <dd class="font-medium text-gray-900 dark:text-white">±0.5m (50% CEP)</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-600 dark:text-gray-400">Update Rate:</dt>
-              <dd class="font-medium text-gray-900 dark:text-white">5Hz</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-600 dark:text-gray-400">Altitude Accuracy:</dt>
-              <dd class="font-medium text-gray-900 dark:text-white">±15m</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-gray-600 dark:text-gray-400">Constellations:</dt>
-              <dd class="font-medium text-gray-900 dark:text-white">GPS, GLONASS, Galileo, BeiDou</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div>
-          <h4 class="font-medium text-gray-900 dark:text-white mb-3">Connection Types</h4>
-          <div class="space-y-3">
-            <div class="flex items-center space-x-3">
-              <UIcon name="i-heroicons-usb" class="w-5 h-5 text-blue-600" />
-              <div>
-                <p class="font-medium text-gray-900 dark:text-white">USB Serial</p>
-                <p class="text-sm text-gray-600 dark:text-gray-400">Direct USB connection (recommended)</p>
-              </div>
-            </div>
-            <div class="flex items-center space-x-3">
-              <UIcon name="i-heroicons-signal" class="w-5 h-5 text-blue-600" />
-              <div>
-                <p class="font-medium text-gray-900 dark:text-white">Bluetooth</p>
-                <p class="text-sm text-gray-600 dark:text-gray-400">SPP 2.1 and BLE 5.1 support</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Connection Settings -->
-    <div class="card">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Connection Settings</h3>
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">GPS Settings</h3>
 
       <div class="space-y-4">
         <div class="flex items-center space-x-3">
-          <UCheckbox v-model="gpsStore.settings.autoConnect" @change="updateSettings" />
-          <div>
-            <label class="font-medium text-gray-900 dark:text-white">Auto-connect on startup</label>
-            <p class="text-sm text-gray-600 dark:text-gray-400">Automatically connect to the last used GPS device when the app starts</p>
-          </div>
+          <UCheckbox v-model="gpsStore.settings.autoConnect" />
+          <label class="text-sm text-gray-700 dark:text-gray-300">Auto-connect to preferred port on startup</label>
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"> Accuracy Threshold (meters) </label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Accuracy Threshold (meters)</label>
           <URange v-model="gpsStore.settings.accuracyThreshold" :min="1" :max="20" :step="0.5" @change="updateSettings" class="w-full max-w-md" />
           <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
             Only record GPS points with accuracy better than {{ gpsStore.settings.accuracyThreshold }}m
@@ -208,6 +143,7 @@
   import { useGPSStore } from "~/stores/gps";
 
   const gpsStore = useGPSStore();
+  const toast = useToast();
 
   // Reactive state
   const selectedPort = ref("");
@@ -228,12 +164,15 @@
     }
   });
 
-  const portOptions = computed(() =>
-    gpsStore.availablePorts.map((port) => ({
+  const portOptions = computed(() => {
+    if (!gpsStore.availablePorts || !Array.isArray(gpsStore.availablePorts)) {
+      return [];
+    }
+    return gpsStore.availablePorts.map((port) => ({
       label: `${port.path} - ${port.manufacturer || "Unknown"}`,
       value: port.path,
-    }))
-  );
+    }));
+  });
 
   const baudRateOptions = [
     { label: "9600", value: 9600 },
@@ -249,26 +188,38 @@
     isRefreshing.value = true;
     try {
       await gpsStore.loadAvailablePorts();
+    } catch (error) {
+      console.error("Error refreshing ports:", error);
+      toast.add({
+        title: "Error",
+        description: "Failed to refresh serial ports",
+        color: "red",
+      });
     } finally {
       isRefreshing.value = false;
     }
   };
 
   const handleConnection = async () => {
-    if (!selectedPort.value) return;
+    if (!selectedPort.value) {
+      toast.add({
+        title: "No Port Selected",
+        description: "Please select a serial port first",
+        color: "yellow",
+      });
+      return;
+    }
 
     isConnecting.value = true;
     try {
       const success = await gpsStore.connectToGPS(selectedPort.value, selectedBaudRate.value);
       if (success) {
-        const toast = useToast();
         toast.add({
           title: "Connected",
           description: `Successfully connected to ${selectedPort.value}`,
           color: "green",
         });
       } else {
-        const toast = useToast();
         toast.add({
           title: "Connection Failed",
           description: "Could not connect to the GPS receiver",
@@ -276,7 +227,7 @@
         });
       }
     } catch (error) {
-      const toast = useToast();
+      console.error("Connection error:", error);
       toast.add({
         title: "Connection Error",
         description: "An error occurred while connecting",
@@ -291,11 +242,17 @@
     isDisconnecting.value = true;
     try {
       await gpsStore.disconnectFromGPS();
-      const toast = useToast();
       toast.add({
         title: "Disconnected",
         description: "GPS receiver disconnected",
         color: "yellow",
+      });
+    } catch (error) {
+      console.error("Disconnect error:", error);
+      toast.add({
+        title: "Disconnect Error",
+        description: "An error occurred while disconnecting",
+        color: "red",
       });
     } finally {
       isDisconnecting.value = false;
@@ -314,7 +271,6 @@
     await new Promise((resolve) => setTimeout(resolve, 2000));
     isTesting.value = false;
 
-    const toast = useToast();
     if (gpsStore.hasValidPosition) {
       toast.add({
         title: "Connection Test Passed",
@@ -331,6 +287,8 @@
   };
 
   const isColumbusDevice = (port) => {
+    if (!port) return false;
+
     const manufacturer = port.manufacturer?.toLowerCase() || "";
     const product = port.product?.toLowerCase() || "";
 
@@ -344,10 +302,17 @@
 
   // Initialize on mount
   onMounted(async () => {
+    // Initialize GPS event listeners
+    gpsStore.initializeGPS();
+
+    // Sync recording status from backend
+    await gpsStore.syncRecordingStatus();
+
+    // Load available ports
     await refreshPorts();
 
     // Set default values if available
-    if (gpsStore.settings.preferredPort && gpsStore.availablePorts.some((p) => p.path === gpsStore.settings.preferredPort)) {
+    if (gpsStore.settings.preferredPort && gpsStore.availablePorts && gpsStore.availablePorts.some((p) => p.path === gpsStore.settings.preferredPort)) {
       selectedPort.value = gpsStore.settings.preferredPort;
     }
     selectedBaudRate.value = gpsStore.settings.baudRate;

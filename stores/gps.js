@@ -18,6 +18,7 @@ export const useGPSStore = defineStore("gps", {
     isRecording: false,
     currentSession: null,
     recordedPositions: [],
+    waypoints: [], // Add waypoints array
 
     // Historical data
     sessions: [],
@@ -145,6 +146,7 @@ export const useGPSStore = defineStore("gps", {
         id: sessionId,
         startTime: new Date().toISOString(),
         positions: [],
+        waypoints: [], // Add waypoints to session
         totalPoints: 0,
         distance: 0,
         maxSpeed: 0,
@@ -152,6 +154,7 @@ export const useGPSStore = defineStore("gps", {
       };
 
       this.recordedPositions = [];
+      this.waypoints = []; // Reset waypoints for new session
       this.isRecording = true;
 
       if (process.client && window.electronAPI) {
@@ -164,6 +167,7 @@ export const useGPSStore = defineStore("gps", {
 
       this.currentSession.endTime = new Date().toISOString();
       this.currentSession.positions = [...this.recordedPositions];
+      this.currentSession.waypoints = [...this.waypoints]; // Save waypoints to session
       this.currentSession.totalPoints = this.recordedPositions.length;
 
       if (this.recordedPositions.length > 1) {
@@ -183,6 +187,7 @@ export const useGPSStore = defineStore("gps", {
       this.sessions.unshift(this.currentSession);
       this.currentSession = null;
       this.recordedPositions = [];
+      this.waypoints = []; // Clear waypoints
       this.isRecording = false;
 
       if (process.client && window.electronAPI) {
@@ -192,7 +197,33 @@ export const useGPSStore = defineStore("gps", {
 
     clearCurrentSession() {
       this.recordedPositions = [];
+      this.waypoints = [];
       this.currentSession = null;
+    },
+
+    addWaypoint(type, note = "") {
+      if (!this.hasValidPosition) return null;
+
+      const waypoint = {
+        id: `waypoint_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        type: type,
+        note: note,
+        position: {
+          latitude: this.currentPosition.latitude,
+          longitude: this.currentPosition.longitude,
+          altitude: this.currentPosition.altitude,
+          accuracy: this.currentPosition.accuracy,
+          utcTime: this.currentPosition.utcTime,
+        },
+      };
+
+      this.waypoints.push(waypoint);
+      return waypoint;
+    },
+
+    deleteWaypoint(waypointId) {
+      this.waypoints = this.waypoints.filter((w) => w.id !== waypointId);
     },
 
     deleteSession(sessionId) {
@@ -206,7 +237,7 @@ export const useGPSStore = defineStore("gps", {
   },
 
   persist: {
-    storage: persistedState.localStorage,
+    storage: typeof window !== "undefined" ? localStorage : null,
     pick: ["sessions", "settings"],
   },
 });

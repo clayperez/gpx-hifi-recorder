@@ -15,10 +15,10 @@
   },
   "dependencies": {
     "@nuxt/ui": "^2.18.4",
-    "@pinia/nuxt": "^0.11.1",
+    "@pinia/nuxt": "^0.7.0",
     "@vueuse/nuxt": "^11.0.0",
     "pinia": "^2.2.2",
-    "pinia-plugin-persistedstate": "^4.3.0",
+    "pinia-plugin-persistedstate": "^3.2.3",
     "serialport": "^12.0.0",
     "@serialport/parser-readline": "^12.0.0",
     "date-fns": "^3.6.0"

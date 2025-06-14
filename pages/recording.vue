@@ -111,7 +111,7 @@
           Resume
         </UButton>
 
-        <UButton variant="outline" size="sm" @click="addWaypoint" :disabled="!gpsStore.hasValidPosition">
+        <UButton variant="outline" size="sm" @click="openWaypointModal" :disabled="!gpsStore.hasValidPosition">
           <UIcon name="i-heroicons-map-pin" class="w-4 h-4 mr-2" />
           Add Waypoint
         </UButton>
@@ -218,8 +218,87 @@
         </UButton>
       </div>
 
-      <p class="text-sm text-gray-600 dark:text-gray-400 mt-2">Current session has {{ gpsStore.recordedPositions.length }} recorded positions</p>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mt-2">
+        Current session has {{ gpsStore.recordedPositions.length }} recorded positions
+        <span v-if="gpsStore.waypoints.length > 0">and {{ gpsStore.waypoints.length }} waypoints</span>
+      </p>
     </div>
+
+    <!-- Current Session Waypoints -->
+    <div v-if="gpsStore.waypoints.length > 0" class="card">
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Session Waypoints</h3>
+
+      <div class="space-y-3">
+        <div v-for="waypoint in gpsStore.waypoints" :key="waypoint.id" class="flex items-start justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div class="flex-1">
+            <div class="flex items-center space-x-3 mb-2">
+              <span :class="getWaypointIcon(waypoint.type)" class="w-5 h-5"></span>
+              <span class="font-medium text-gray-900 dark:text-white">{{ waypoint.type }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                {{ formatTime(waypoint.timestamp) }}
+              </span>
+            </div>
+            <div v-if="waypoint.note" class="text-sm text-gray-600 dark:text-gray-300 mb-2">"{{ waypoint.note }}"</div>
+            <div class="text-xs font-mono text-gray-500 dark:text-gray-400">
+              {{ waypoint.position.latitude.toFixed(6) }}, {{ waypoint.position.longitude.toFixed(6) }} (±{{
+                waypoint.position.accuracy?.toFixed(1) || "N/A"
+              }}m)
+            </div>
+          </div>
+
+          <UButton variant="ghost" size="sm" color="red" @click="deleteWaypoint(waypoint.id)">
+            <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+          </UButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Waypoint Modal -->
+    <UModal v-model="showWaypointModal">
+      <div class="p-6">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Waypoint</h3>
+          <UButton variant="ghost" size="sm" @click="closeWaypointModal">
+            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          </UButton>
+        </div>
+
+        <div class="space-y-4">
+          <!-- Current Position Info -->
+          <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <h4 class="font-medium text-blue-900 dark:text-blue-100 mb-2">Current Position</h4>
+            <div class="text-sm text-blue-800 dark:text-blue-200 space-y-1">
+              <p>{{ gpsStore.currentPosition?.latitude.toFixed(6) }}°, {{ gpsStore.currentPosition?.longitude.toFixed(6) }}°</p>
+              <p>Altitude: {{ Math.round(gpsStore.currentPosition?.altitude || 0) }}m</p>
+              <p>Accuracy: ±{{ gpsStore.currentPosition?.accuracy?.toFixed(1) || "N/A" }}m</p>
+            </div>
+          </div>
+
+          <!-- Waypoint Type -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"> Waypoint Type * </label>
+            <USelect v-model="waypointForm.type" :options="waypointTypeOptions" placeholder="Select waypoint type" class="w-full" />
+          </div>
+
+          <!-- Optional Note -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"> Note (Optional) </label>
+            <UTextarea v-model="waypointForm.note" placeholder="Add a short note about this waypoint..." :maxlength="200" :rows="3" class="w-full" />
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ waypointForm.note.length }}/200 characters</p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center space-x-3 pt-4">
+            <UButton class="btn-primary" @click="addWaypoint" :disabled="!waypointForm.type">
+              <UIcon name="i-heroicons-map-pin" class="w-4 h-4 mr-2" />
+              Add Waypoint
+            </UButton>
+
+            <UButton variant="outline" @click="closeWaypointModal"> Cancel </UButton>
+          </div>
+        </div>
+      </div>
+    </UModal>
   </div>
 </template>
 
@@ -234,6 +313,19 @@
   const autoExport = ref(false);
   const includeWaypoints = ref(true);
   const filterByAccuracy = ref(true);
+  const showWaypointModal = ref(false);
+  const waypointForm = ref({
+    type: "",
+    note: "",
+  });
+
+  // Waypoint type options
+  const waypointTypeOptions = [
+    { label: "Aid Station", value: "Aid Station" },
+    { label: "Repair", value: "Repair" },
+    { label: "Hazard", value: "Hazard" },
+    { label: "Control", value: "Control" },
+  ];
 
   // Computed properties
   const canStartRecording = computed(
@@ -282,15 +374,62 @@
   };
 
   const addWaypoint = () => {
-    if (!gpsStore.hasValidPosition) return;
+    if (!gpsStore.hasValidPosition || !waypointForm.value.type) return;
 
-    // Implementation would add a waypoint at current position
-    const toast = useToast();
-    toast.add({
-      title: "Waypoint Added",
-      description: "Waypoint added at current GPS position",
-      color: "green",
-    });
+    const waypoint = gpsStore.addWaypoint(waypointForm.value.type, waypointForm.value.note);
+
+    if (waypoint) {
+      const toast = useToast();
+      toast.add({
+        title: "Waypoint Added",
+        description: `${waypointForm.value.type} waypoint added at current GPS position`,
+        color: "green",
+      });
+
+      closeWaypointModal();
+    }
+  };
+
+  const deleteWaypoint = (waypointId) => {
+    if (confirm("Are you sure you want to delete this waypoint?")) {
+      gpsStore.deleteWaypoint(waypointId);
+      const toast = useToast();
+      toast.add({
+        title: "Waypoint Deleted",
+        description: "Waypoint has been removed from the session",
+        color: "yellow",
+      });
+    }
+  };
+
+  const openWaypointModal = () => {
+    waypointForm.value = {
+      type: "",
+      note: "",
+    };
+    showWaypointModal.value = true;
+  };
+
+  const closeWaypointModal = () => {
+    showWaypointModal.value = false;
+    waypointForm.value = {
+      type: "",
+      note: "",
+    };
+  };
+
+  const getWaypointIcon = (type) => {
+    const iconMap = {
+      "Aid Station": "text-blue-600",
+      Repair: "text-orange-600",
+      Hazard: "text-red-600",
+      Control: "text-green-600",
+    };
+
+    const baseClass = "flex-shrink-0";
+    const colorClass = iconMap[type] || "text-gray-600";
+
+    return `${baseClass} ${colorClass}`;
   };
 
   const clearSession = () => {

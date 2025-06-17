@@ -23,7 +23,12 @@
       </div>
 
       <!-- Scrollable data area -->
-      <div ref="logContainer" class="h-64 overflow-y-auto mt-2 space-y-1" style="scrollbar-width: thin; scrollbar-color: #22c55e #000000">
+      <div
+        ref="logContainer"
+        @scroll="handleScroll"
+        class="h-64 overflow-y-auto mt-2 space-y-1"
+        style="scrollbar-width: thin; scrollbar-color: #22c55e #000000"
+      >
         <!-- No data message -->
         <div v-if="logEntries.length === 0" class="text-center text-gray-500 py-8">
           <div>No GPS data received yet</div>
@@ -45,7 +50,7 @@
           <div>{{ entry.elevation }}</div>
           <div>{{ entry.speed }}</div>
           <div>{{ entry.quality }}</div>
-          <div>{{ entry.time }}</div>
+          <div>{{ formatTime(entry.timestamp) }}</div>
         </div>
       </div>
 
@@ -53,6 +58,7 @@
       <div class="flex justify-between items-center mt-3 pt-2 border-t border-green-600">
         <div class="text-xs text-gray-400">Auto-scroll: {{ autoScroll ? "ON" : "OFF" }}</div>
         <div class="space-x-2">
+          <button @click="scrollToBottom" class="px-2 py-1 text-xs bg-blue-700 hover:bg-blue-600 rounded transition-colors">Scroll to Bottom</button>
           <button @click="toggleAutoScroll" class="px-2 py-1 text-xs bg-green-700 hover:bg-green-600 rounded transition-colors">
             {{ autoScroll ? "Disable Auto-scroll" : "Enable Auto-scroll" }}
           </button>
@@ -64,7 +70,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, watch, nextTick } from "vue";
+  import { ref, computed, watch, nextTick, onMounted } from "vue";
   import { useGPSStore } from "~/stores/gps";
 
   // Debug logging helper - dynamically checks localStorage for debug toggle
@@ -78,76 +84,52 @@
 
   const gpsStore = useGPSStore();
   const logContainer = ref(null);
-  const logEntries = ref([]);
   const autoScroll = ref(true);
-  let entryCounter = 0;
+
+  // Use shared log entries from GPS store instead of local array
+  const logEntries = computed(() => gpsStore.logEntries);
 
   // Computed properties for reactive data
   const isLogging = computed(() => gpsStore.isRecording);
   const isConnected = computed(() => gpsStore.isConnected);
   const currentPosition = computed(() => gpsStore.currentPosition);
 
-  // Watch for new GPS data and add to log when recording
-  watch(currentPosition, (newData, oldData) => {
-    if (newData && isLogging.value) {
-      // Only log if this is a meaningful update (has speed data or is significantly different)
-      const shouldLog =
-        newData.speed !== undefined || // Has speed data (RMC update)
-        !oldData || // First data point
-        newData.timestamp !== oldData.timestamp || // Different timestamp
-        Math.abs(newData.latitude - (oldData.latitude || 0)) > 0.000001 || // Position changed significantly
-        Math.abs(newData.longitude - (oldData.longitude || 0)) > 0.000001;
-
-      if (shouldLog) {
-        debugLog("📺 Console log: Adding entry - reason:", {
-          hasSpeed: newData.speed !== undefined,
-          isFirst: !oldData,
-          timestampChanged: oldData && newData.timestamp !== oldData.timestamp,
-          positionChanged:
-            oldData && (Math.abs(newData.latitude - (oldData.latitude || 0)) > 0.000001 || Math.abs(newData.longitude - (oldData.longitude || 0)) > 0.000001),
-        });
-        addLogEntry(newData);
-      } else {
-        debugLog("📺 Console log: Skipping duplicate entry without speed data");
-      }
-    }
-  });
-
-  // Watch for recording status changes
-  watch(isLogging, (recording) => {
-    if (!recording) {
-      debugLog("📺 Console log: Recording stopped");
-    } else {
-      debugLog("📺 Console log: Recording started");
-    }
-  });
-
-  function addLogEntry(gpsData) {
-    const entry = {
-      id: ++entryCounter,
-      latitude: gpsData.latitude?.toFixed(6) || "N/A",
-      longitude: gpsData.longitude?.toFixed(6) || "N/A",
-      satellites: gpsData.satellites || 0,
-      elevation: gpsData.elevation?.toFixed(1) || "N/A",
-      speed: gpsData.speed?.toFixed(1) || "N/A",
-      quality: gpsData.quality || "N/A",
-      time: formatTime(gpsData.timestamp),
-    };
-
-    logEntries.value.push(entry);
-
-    // Keep only last 100 entries to prevent memory issues
-    if (logEntries.value.length > 100) {
-      logEntries.value.shift();
-    }
-
-    // Auto-scroll to bottom if enabled
-    if (autoScroll.value) {
+  // Ensure auto-scroll is working when component mounts
+  onMounted(() => {
+    debugLog("📺 Console: Component mounted, auto-scroll enabled");
+    // Scroll to bottom if there are already entries
+    if (logEntries.value.length > 0) {
       nextTick(() => {
         scrollToBottom();
       });
     }
-  }
+  });
+
+  // Watch for changes to log entries to handle auto-scrolling
+  watch(
+    logEntries,
+    () => {
+      if (autoScroll.value) {
+        nextTick(() => {
+          scrollToBottom();
+        });
+      }
+    },
+    { deep: true, flush: "post" }
+  );
+
+  // Also watch the length of log entries as a fallback
+  watch(
+    () => logEntries.value.length,
+    (newLength, oldLength) => {
+      debugLog(`📺 Console: Log entries length changed from ${oldLength} to ${newLength}, auto-scroll: ${autoScroll.value}`);
+      if (autoScroll.value && newLength > (oldLength || 0)) {
+        nextTick(() => {
+          scrollToBottom();
+        });
+      }
+    }
+  );
 
   function formatTime(timestamp) {
     if (!timestamp) return "N/A";
@@ -162,7 +144,29 @@
 
   function scrollToBottom() {
     if (logContainer.value) {
-      logContainer.value.scrollTop = logContainer.value.scrollHeight;
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        const { scrollHeight, clientHeight } = logContainer.value;
+        debugLog(`📺 Console: Scrolling to bottom - scrollHeight: ${scrollHeight}, clientHeight: ${clientHeight}`);
+        logContainer.value.scrollTop = logContainer.value.scrollHeight;
+      });
+    }
+  }
+
+  function handleScroll() {
+    if (!logContainer.value) return;
+
+    // Check if user has scrolled to the bottom
+    const { scrollTop, scrollHeight, clientHeight } = logContainer.value;
+    const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 5;
+
+    // If user scrolled away from bottom, disable auto-scroll
+    // If user scrolled back to bottom, re-enable auto-scroll
+    if (!isAtBottom && autoScroll.value) {
+      debugLog("📺 Console: User scrolled up, temporarily disabling auto-scroll");
+    } else if (isAtBottom && !autoScroll.value) {
+      debugLog("📺 Console: User scrolled to bottom, re-enabling auto-scroll");
+      autoScroll.value = true;
     }
   }
 
@@ -174,8 +178,7 @@
   }
 
   function clearLog() {
-    logEntries.value = [];
-    entryCounter = 0;
+    gpsStore.clearLogEntries();
     debugLog("📺 Console log: Cleared all entries");
   }
 </script>

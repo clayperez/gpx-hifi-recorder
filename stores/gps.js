@@ -17,6 +17,7 @@ export const useGPSStore = defineStore("gps", {
     currentPosition: null,
     track: [], // Array of GPS positions
     pois: [], // Array of Points of Interest
+    logEntries: [], // Shared log entries for console and map display
     devicePort: null,
     poiTypes: ["Hazard", "Info", "Traffic Control", "Rest Stop"],
     statistics: {
@@ -27,6 +28,7 @@ export const useGPSStore = defineStore("gps", {
       satellites: 0,
     },
     eventListenersSetup: false,
+    entryCounter: 0, // Counter for log entry IDs
   }),
 
   actions: {
@@ -122,6 +124,10 @@ export const useGPSStore = defineStore("gps", {
         }
         await window.electronAPI.startRecording();
         this.isRecording = true;
+
+        // Clear previous log entries and track when starting new recording
+        this.clearLogEntries();
+        this.track = [];
       } catch (error) {
         console.error("Failed to start recording:", error);
         throw error;
@@ -162,9 +168,54 @@ export const useGPSStore = defineStore("gps", {
       }
     },
 
+    // Log entry management
+    addLogEntry(gpsData) {
+      // Only log if this is a meaningful update (has speed data or is significantly different)
+      const prevEntry = this.logEntries[this.logEntries.length - 1];
+      const shouldLog =
+        gpsData.speed !== undefined || // Has speed data (RMC update)
+        !prevEntry || // First data point
+        gpsData.timestamp !== prevEntry?.timestamp || // Different timestamp
+        Math.abs(gpsData.latitude - (prevEntry?.latitude || 0)) > 0.000001 || // Position changed significantly
+        Math.abs(gpsData.longitude - (prevEntry?.longitude || 0)) > 0.000001;
+
+      if (shouldLog && this.isRecording) {
+        debugLog("📺 GPS Store: Adding log entry");
+
+        const entry = {
+          id: ++this.entryCounter,
+          latitude: gpsData.latitude?.toFixed(8) || "N/A", // Increased to 8 decimal places for high precision
+          longitude: gpsData.longitude?.toFixed(8) || "N/A", // Increased to 8 decimal places for high precision
+          satellites: gpsData.satellites || 0,
+          elevation: gpsData.elevation?.toFixed(2) || "N/A", // Increased elevation precision to 2 decimal places
+          speed: gpsData.speed?.toFixed(2) || "N/A", // Increased speed precision to 2 decimal places
+          quality: gpsData.quality || "N/A",
+          timestamp: gpsData.timestamp || new Date().toISOString(),
+          rawLatitude: gpsData.latitude,
+          rawLongitude: gpsData.longitude,
+        };
+
+        this.logEntries.push(entry);
+
+        // Keep only the last 100 entries to prevent memory issues
+        if (this.logEntries.length > 100) {
+          this.logEntries.shift();
+        }
+      }
+    },
+
+    clearLogEntries() {
+      debugLog("📺 GPS Store: Clearing log entries");
+      this.logEntries = [];
+      this.entryCounter = 0;
+    },
+
     updatePosition(position) {
       const prevPosition = this.currentPosition;
       this.currentPosition = position;
+
+      // Add to log entries for shared display
+      this.addLogEntry(position);
 
       // Update statistics
       this.statistics.satellites = position.satellites || 0;

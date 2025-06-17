@@ -203,7 +203,7 @@
   watch(isRecording, () => updateStatus());
   watch(currentPosition, (data) => {
     if (data && data.latitude && data.longitude) {
-      lastPosition.value = `${data.latitude.toFixed(6)}°, ${data.longitude.toFixed(6)}°`;
+      lastPosition.value = `${data.latitude.toFixed(8)}°, ${data.longitude.toFixed(8)}°`;
     }
   });
 

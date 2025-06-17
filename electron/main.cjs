@@ -408,12 +408,12 @@ function parseNMEACoordinate(coord, dir) {
     // This looks like a valid latitude
     degrees = latDegrees;
     minutes = latMinutes;
-    debugLog(`📍 Parsed as latitude: ${degrees}° ${minutes.toFixed(4)}'`);
+    debugLog(`📍 Parsed as latitude: ${degrees}° ${minutes.toFixed(6)}'`);
   } else if (lonDecimal <= 180 && lonMinutes < 60) {
     // This looks like a valid longitude
     degrees = lonDegrees;
     minutes = lonMinutes;
-    debugLog(`📍 Parsed as longitude: ${degrees}° ${minutes.toFixed(4)}'`);
+    debugLog(`📍 Parsed as longitude: ${degrees}° ${minutes.toFixed(6)}'`);
   } else {
     // Fallback to original logic if ranges don't help
     debugLog(`⚠️ Coordinate outside expected ranges, using fallback parsing`);
@@ -432,7 +432,7 @@ function parseNMEACoordinate(coord, dir) {
     decimal = -decimal;
   }
 
-  debugLog(`📍 Final coordinate: ${decimal.toFixed(6)}° (${degrees}° ${minutes.toFixed(4)}' ${dir})`);
+  debugLog(`📍 Final coordinate: ${decimal.toFixed(10)}° (${degrees}° ${minutes.toFixed(6)}' ${dir})`);
   return decimal;
 }
 

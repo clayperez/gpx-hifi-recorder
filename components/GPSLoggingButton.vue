@@ -17,11 +17,11 @@
     <div v-if="latestGPSData" class="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded">
       <h4 class="font-semibold mb-2">Latest GPS Data:</h4>
       <div class="text-sm font-mono space-y-1">
-        <div>Lat: {{ latestGPSData.latitude?.toFixed(6) || "N/A" }}°</div>
-        <div>Lon: {{ latestGPSData.longitude?.toFixed(6) || "N/A" }}°</div>
-        <div>Elevation: {{ latestGPSData.elevation?.toFixed(1) || "N/A" }} m</div>
+        <div>Lat: {{ latestGPSData.latitude?.toFixed(8) || "N/A" }}°</div>
+        <div>Lon: {{ latestGPSData.longitude?.toFixed(8) || "N/A" }}°</div>
+        <div>Elevation: {{ latestGPSData.elevation?.toFixed(2) || "N/A" }} m</div>
         <div>Satellites: {{ latestGPSData.satellites || 0 }}</div>
-        <div>Speed: {{ latestGPSData.speed?.toFixed(1) || "N/A" }} km/h</div>
+        <div>Speed: {{ latestGPSData.speed?.toFixed(2) || "N/A" }} km/h</div>
         <div>Quality: {{ latestGPSData.quality || "N/A" }}</div>
         <div>Time: {{ formatTime(latestGPSData.timestamp) }}</div>
       </div>
